@@ -7,98 +7,229 @@ import '../../core/doctor_search_service.dart';
 import '../../core/models.dart';
 import '../../shared/page_frame.dart';
 
-class DoctorsScreen extends ConsumerWidget {
+class DoctorsScreen extends ConsumerStatefulWidget {
   const DoctorsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final doctors = ref.watch(appControllerProvider).doctors;
+  ConsumerState<DoctorsScreen> createState() => _DoctorsScreenState();
+}
+
+class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
+  String filter = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final doctors = ref.watch(appControllerProvider).doctors.where((doctor) {
+      final query = filter.trim().toLowerCase();
+      return query.isEmpty ||
+          doctor.name.toLowerCase().contains(query) ||
+          doctor.specialty.toLowerCase().contains(query) ||
+          doctor.address.toLowerCase().contains(query);
+    }).toList();
     return PageFrame(
       title: 'Ärzte',
-      subtitle: 'Kontakte und wichtige Aktionen – fehlende Angaben bleiben einfach ausgeblendet.',
-      action: MenuAnchor(builder: (context, controller, child) => IconButton.filledTonal(onPressed: () => controller.isOpen ? controller.close() : controller.open(), icon: const Icon(Icons.add), tooltip: 'Arzt hinzufügen'), menuChildren: [MenuItemButton(leadingIcon: const Icon(Icons.search), onPressed: () => _search(context, ref), child: const Text('Online suchen')), MenuItemButton(leadingIcon: const Icon(Icons.edit_outlined), onPressed: () => _add(context, ref), child: const Text('Manuell anlegen'))]),
-      child: doctors.isEmpty
-          ? const _EmptyDoctors()
-          : LayoutBuilder(builder: (context, constraints) {
-              final cardWidth = constraints.maxWidth >= 760 ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
-              return Wrap(spacing: 16, runSpacing: 16, children: [for (final doctor in doctors) SizedBox(width: cardWidth, child: _DoctorCard(doctor: doctor))]);
-            }),
+      subtitle: 'Kontakte, Fachrichtungen, Termine und Nachrichten.',
+      action: MenuAnchor(
+        builder: (context, controller, child) => IconButton.filledTonal(
+          onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+          icon: const Icon(Icons.add),
+          tooltip: 'Arzt hinzufügen',
+        ),
+        menuChildren: [
+          MenuItemButton(leadingIcon: const Icon(Icons.travel_explore), onPressed: () => _searchOnline(context), child: const Text('Im Umkreis suchen')),
+          MenuItemButton(leadingIcon: const Icon(Icons.edit_outlined), onPressed: () => _editDoctor(context), child: const Text('Manuell anlegen')),
+        ],
+      ),
+      child: Column(children: [
+        SearchBar(
+          hintText: 'Gespeicherte Ärzte oder Fachrichtung filtern',
+          leading: const Icon(Icons.search),
+          onChanged: (value) => setState(() => filter = value),
+        ),
+        const SizedBox(height: 18),
+        if (doctors.isEmpty)
+          _EmptyDoctors(hasFilter: filter.isNotEmpty)
+        else
+          LayoutBuilder(builder: (context, constraints) {
+            final width = constraints.maxWidth >= 760 ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
+            return Wrap(spacing: 16, runSpacing: 16, children: [
+              for (final doctor in doctors) SizedBox(width: width, child: _DoctorCard(doctor: doctor, onEdit: () => _editDoctor(context, doctor: doctor))),
+            ]);
+          }),
+      ]),
     );
   }
 
-  Future<void> _add(BuildContext context, WidgetRef ref) async {
-    final name = TextEditingController();
-    final specialty = TextEditingController();
-    final address = TextEditingController();
-    final phone = TextEditingController();
-    final email = TextEditingController();
-    final website = TextEditingController();
-    final accepted = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
-      title: const Text('Arzt hinzufügen'),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'Name *')),
-        const SizedBox(height: 10), TextField(controller: specialty, decoration: const InputDecoration(labelText: 'Fachrichtung')),
-        const SizedBox(height: 10), TextField(controller: address, decoration: const InputDecoration(labelText: 'Adresse')),
-        const SizedBox(height: 10), TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Telefon')),
-        const SizedBox(height: 10), TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'E-Mail')),
-        const SizedBox(height: 10), TextField(controller: website, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Website')),
-      ])),
-      actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Abbrechen')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Speichern'))],
-    ));
-    if (accepted == true && name.text.trim().isNotEmpty) {
-      await ref.read(appControllerProvider).addDoctor(Doctor(id: '', name: name.text.trim(), specialty: specialty.text.trim(), address: address.text.trim(), phone: phone.text.trim(), email: email.text.trim(), website: website.text.trim()));
-    }
+  Future<void> _editDoctor(BuildContext context, {Doctor? doctor}) async {
+    final result = await showDialog<Doctor>(context: context, builder: (_) => _DoctorFormDialog(doctor: doctor));
+    if (result != null) await ref.read(appControllerProvider).addDoctor(result);
   }
 
-  Future<void> _search(BuildContext context, WidgetRef ref) async {
+  Future<void> _searchOnline(BuildContext context) async {
     final query = TextEditingController();
-    List<Doctor> results = const [];
+    final location = TextEditingController();
+    var radius = 10.0;
     var loading = false;
+    String? error;
+    List<Doctor> results = const [];
     await showDialog<void>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-      title: const Text('Arzt online suchen'),
-      content: SizedBox(width: 520, child: Column(mainAxisSize: MainAxisSize.min, children: [
-        SearchBar(controller: query, hintText: 'Name, Fachrichtung und Ort', trailing: [IconButton(onPressed: loading ? null : () async {
-          setDialogState(() => loading = true);
-          try {
-            results = await DoctorSearchService.search(query.text);
-          } finally {
-            setDialogState(() => loading = false);
-          }
-        }, icon: const Icon(Icons.search))]),
+      title: const Text('Arzt im Umkreis suchen'),
+      content: SizedBox(width: 600, height: 520, child: Column(children: [
+        TextField(controller: query, decoration: const InputDecoration(labelText: 'Arzt, Fachrichtung oder Behandlungsthema', hintText: 'z. B. Haut, Rücken, Kardiologie')),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: TextField(controller: location, decoration: const InputDecoration(labelText: 'Ort oder Postleitzahl'))),
+          const SizedBox(width: 10),
+          DropdownButton<double>(value: radius, items: const [5, 10, 25, 50, 100].map((value) => DropdownMenuItem(value: value.toDouble(), child: Text('$value km'))).toList(), onChanged: (value) => setDialogState(() => radius = value ?? 10)),
+        ]),
         const SizedBox(height: 12),
-        if (loading) const LinearProgressIndicator(),
-        Flexible(child: ListView(shrinkWrap: true, children: [for (final doctor in results) ListTile(title: Text(doctor.name), subtitle: Text(doctor.address, maxLines: 2, overflow: TextOverflow.ellipsis), trailing: const Icon(Icons.add_circle_outline), onTap: () async {
-          await ref.read(appControllerProvider).addDoctor(doctor);
-          if (context.mounted) Navigator.pop(context);
-        })])),
-        const SizedBox(height: 8), const Align(alignment: Alignment.centerRight, child: Text('Daten © OpenStreetMap-Mitwirkende', style: TextStyle(fontSize: 11))),
+        SizedBox(width: double.infinity, child: FilledButton.icon(
+          onPressed: loading ? null : () async {
+            setDialogState(() { loading = true; error = null; });
+            try {
+              results = await DoctorSearchService.search(query: query.text, location: location.text, radiusKm: radius);
+              if (results.isEmpty) error = 'Keine passenden Treffer in diesem Radius gefunden.';
+            } catch (exception) {
+              error = exception.toString().replaceFirst('Exception: ', '');
+            } finally {
+              setDialogState(() => loading = false);
+            }
+          },
+          icon: const Icon(Icons.search), label: const Text('Suchen'),
+        )),
+        if (loading) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
+        if (error != null) Padding(padding: const EdgeInsets.all(12), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+        Expanded(child: ListView(children: [
+          for (final doctor in results)
+            ListTile(
+              title: Text(doctor.name),
+              subtitle: Text([doctor.specialty, doctor.address].where((value) => value.isNotEmpty).join('\n'), maxLines: 3, overflow: TextOverflow.ellipsis),
+              trailing: const Icon(Icons.add_circle_outline),
+              onTap: () async {
+                await ref.read(appControllerProvider).addDoctor(doctor);
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${doctor.name} gespeichert.')));
+              },
+            ),
+        ])),
+        const Align(alignment: Alignment.centerRight, child: Text('Daten © OpenStreetMap-Mitwirkende', style: TextStyle(fontSize: 11))),
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Schließen'))],
     )));
   }
 }
 
+class _DoctorFormDialog extends StatefulWidget {
+  const _DoctorFormDialog({this.doctor});
+  final Doctor? doctor;
+
+  @override
+  State<_DoctorFormDialog> createState() => _DoctorFormDialogState();
+}
+
+class _DoctorFormDialogState extends State<_DoctorFormDialog> {
+  late final TextEditingController name;
+  late final TextEditingController specialty;
+  late final TextEditingController address;
+  late final TextEditingController phone;
+  late final TextEditingController email;
+  late final TextEditingController website;
+  late final TextEditingController appointment;
+
+  @override
+  void initState() {
+    super.initState();
+    name = TextEditingController(text: widget.doctor?.name ?? '');
+    specialty = TextEditingController(text: widget.doctor?.specialty ?? '');
+    address = TextEditingController(text: widget.doctor?.address ?? '');
+    phone = TextEditingController(text: widget.doctor?.phone ?? '');
+    email = TextEditingController(text: widget.doctor?.email ?? '');
+    website = TextEditingController(text: widget.doctor?.website ?? '');
+    appointment = TextEditingController(text: widget.doctor?.appointmentUrl ?? '');
+  }
+
+  @override
+  void dispose() {
+    name.dispose(); specialty.dispose(); address.dispose(); phone.dispose();
+    email.dispose(); website.dispose(); appointment.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.doctor == null ? 'Arzt hinzufügen' : 'Arzt bearbeiten'),
+    content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      _field(name, 'Name *', Icons.person_outline),
+      _field(specialty, 'Fachrichtung / Behandlungsschwerpunkte', Icons.medical_services_outlined),
+      _field(address, 'Adresse', Icons.location_on_outlined),
+      _field(phone, 'Telefonnummer', Icons.call_outlined, type: TextInputType.phone),
+      _field(email, 'E-Mail für Rezepte und Nachrichten', Icons.email_outlined, type: TextInputType.emailAddress),
+      _field(website, 'Webseite', Icons.language, type: TextInputType.url),
+      _field(appointment, 'Link zur Terminvereinbarung', Icons.event_available_outlined, type: TextInputType.url),
+    ]))),
+    actions: [
+      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Abbrechen')),
+      FilledButton(onPressed: name.text.trim().isEmpty ? null : () => Navigator.pop(context, Doctor(
+        id: widget.doctor?.id ?? '', name: name.text.trim(), specialty: specialty.text.trim(), address: address.text.trim(),
+        phone: phone.text.trim(), email: email.text.trim(), website: website.text.trim(), appointmentUrl: appointment.text.trim(),
+        latitude: widget.doctor?.latitude, longitude: widget.doctor?.longitude,
+      )), child: const Text('Speichern')),
+    ],
+  );
+
+  Widget _field(TextEditingController controller, String label, IconData icon, {TextInputType? type}) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: TextField(controller: controller, keyboardType: type, onChanged: (_) => setState(() {}), decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon))),
+  );
+}
+
 class _DoctorCard extends ConsumerWidget {
-  const _DoctorCard({required this.doctor});
+  const _DoctorCard({required this.doctor, required this.onEdit});
   final Doctor doctor;
+  final VoidCallback onEdit;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) => Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Row(children: [CircleAvatar(child: Text(doctor.name.characters.first.toUpperCase())), const SizedBox(width: 14), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(doctor.name, style: Theme.of(context).textTheme.titleLarge), if (doctor.specialty.isNotEmpty) Text(doctor.specialty)])), IconButton(onPressed: () => ref.read(appControllerProvider).removeDoctor(doctor.id), icon: const Icon(Icons.delete_outline), tooltip: 'Löschen')]),
-    if (doctor.address.isNotEmpty) ...[const SizedBox(height: 16), Text(doctor.address)],
-    const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8, children: [
+    Row(children: [
+      CircleAvatar(child: Text(doctor.name.characters.first.toUpperCase())), const SizedBox(width: 14),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(doctor.name, style: Theme.of(context).textTheme.titleLarge), if (doctor.specialty.isNotEmpty) Text(doctor.specialty)])),
+      PopupMenuButton<String>(onSelected: (value) {
+        if (value == 'edit') onEdit();
+        if (value == 'delete') ref.read(appControllerProvider).removeDoctor(doctor.id);
+      }, itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Bearbeiten')), PopupMenuItem(value: 'delete', child: Text('Löschen'))]),
+    ]),
+    if (doctor.address.isNotEmpty) ...[const SizedBox(height: 14), Text(doctor.address)],
+    const SizedBox(height: 14),
+    Wrap(spacing: 8, runSpacing: 8, children: [
       if (doctor.phone.isNotEmpty) ActionChip(avatar: const Icon(Icons.call, size: 18), label: const Text('Anrufen'), onPressed: () => _open(Uri(scheme: 'tel', path: doctor.phone))),
-      if (doctor.email.isNotEmpty) ActionChip(avatar: const Icon(Icons.email_outlined, size: 18), label: const Text('E-Mail'), onPressed: () => _open(Uri(scheme: 'mailto', path: doctor.email))),
-      if (doctor.website.isNotEmpty) ActionChip(avatar: const Icon(Icons.language, size: 18), label: const Text('Website'), onPressed: () => _open(_webUri(doctor.website))),
+      if (doctor.email.isNotEmpty) ...[
+        ActionChip(avatar: const Icon(Icons.medication_outlined, size: 18), label: const Text('Rezept'), onPressed: () => _prescriptionEmail(ref)),
+        ActionChip(avatar: const Icon(Icons.email_outlined, size: 18), label: const Text('Nachricht'), onPressed: () => _open(Uri(scheme: 'mailto', path: doctor.email))),
+      ],
+      if (doctor.website.isNotEmpty) ActionChip(avatar: const Icon(Icons.language, size: 18), label: const Text('Webseite'), onPressed: () => _open(_webUri(doctor.website))),
+      if (doctor.appointmentUrl.isNotEmpty) ActionChip(avatar: const Icon(Icons.event_available_outlined, size: 18), label: const Text('Termin'), onPressed: () => _open(_webUri(doctor.appointmentUrl))),
       if (doctor.address.isNotEmpty) ActionChip(avatar: const Icon(Icons.directions_outlined, size: 18), label: const Text('Route'), onPressed: () => _open(Uri.https('www.google.com', '/maps/search/', {'api': '1', 'query': doctor.address}))),
     ]),
   ])));
+
+  Future<void> _prescriptionEmail(WidgetRef ref) async {
+    final state = ref.read(appControllerProvider);
+    final medicines = state.medications.map((item) => '• ${item.name}').join('\n');
+    final profile = state.profile;
+    final body = 'Guten Tag,\n\nich möchte folgende Medikamente als Rezept bestellen:\n\n${medicines.isEmpty ? '• Bitte Medikament ergänzen' : medicines}\n\nPatient: ${profile.name}\nTelefon: ${profile.phone}\n\nMit freundlichen Grüßen\n${profile.name}';
+    await _open(Uri(scheme: 'mailto', path: doctor.email, queryParameters: {'subject': 'Rezeptbestellung', 'body': body}));
+  }
 
   Future<void> _open(Uri uri) async => launchUrl(uri, mode: LaunchMode.externalApplication);
   Uri _webUri(String value) => Uri.tryParse(value)?.hasScheme == true ? Uri.parse(value) : Uri.parse('https://$value');
 }
 
 class _EmptyDoctors extends StatelessWidget {
-  const _EmptyDoctors();
+  const _EmptyDoctors({required this.hasFilter});
+  final bool hasFilter;
   @override
-  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(32), child: Center(child: Column(children: [const Icon(Icons.local_hospital_outlined, size: 52), const SizedBox(height: 16), Text('Noch keine Ärzte', style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 6), const Text('Lege Praxen manuell an. Externe Suche folgt nach konfigurierter Datenquelle.')]))));
+  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(32), child: Center(child: Column(children: [
+    const Icon(Icons.local_hospital_outlined, size: 52), const SizedBox(height: 16),
+    Text(hasFilter ? 'Keine passenden Ärzte' : 'Noch keine Ärzte', style: Theme.of(context).textTheme.titleLarge),
+    const SizedBox(height: 6), Text(hasFilter ? 'Versuche einen anderen Namen oder eine andere Fachrichtung.' : 'Lege eine Praxis an oder suche nach Fachrichtung und Umkreis.', textAlign: TextAlign.center),
+  ]))));
 }
