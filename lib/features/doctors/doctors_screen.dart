@@ -17,6 +17,7 @@ class DoctorsScreen extends ConsumerStatefulWidget {
 class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
   String filter = '';
   final localSearchController = TextEditingController();
+  final doctorSearch = DoctorSearchService();
 
   static const specialties = [
     'Alle Fachrichtungen', 'Hausarzt', 'Allgemeinmedizin', 'Innere Medizin',
@@ -28,6 +29,7 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
   @override
   void dispose() {
     localSearchController.dispose();
+    doctorSearch.close();
     super.dispose();
   }
 
@@ -91,6 +93,7 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
     var radius = 10.0;
     var loading = false;
     String? error;
+    List<String> notices = const [];
     List<Doctor> results = const [];
     await showDialog<void>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
       title: const Text('Arzt im Umkreis suchen'),
@@ -112,33 +115,65 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
         const SizedBox(height: 12),
         SizedBox(width: double.infinity, child: FilledButton.icon(
           onPressed: loading ? null : () async {
-            setDialogState(() { loading = true; error = null; });
+            setDialogState(() {
+              loading = true;
+              error = null;
+              notices = const [];
+            });
             try {
               final searchTerm = [if (specialty != specialties.first) specialty, query.text.trim()].where((value) => value.isNotEmpty).join(' ');
-              results = await DoctorSearchService.search(query: searchTerm, location: location.text, radiusKm: radius);
+              final response = await doctorSearch.search(
+                query: searchTerm,
+                location: location.text,
+                radiusKm: radius,
+              );
+              if (!context.mounted) return;
+              results = response.doctors;
+              notices = response.notices;
               if (results.isEmpty) error = 'Keine passenden Treffer in diesem Radius gefunden.';
             } catch (exception) {
+              if (!context.mounted) return;
               error = exception.toString().replaceFirst('Exception: ', '');
             } finally {
-              setDialogState(() => loading = false);
+              if (context.mounted) {
+                setDialogState(() => loading = false);
+              }
             }
           },
           icon: const Icon(Icons.search), label: const Text('Suchen'),
         )),
         if (loading) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
         if (error != null) Padding(padding: const EdgeInsets.all(12), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+        for (final notice in notices)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline, size: 18),
+                const SizedBox(width: 8),
+                Expanded(child: Text(notice)),
+              ],
+            ),
+          ),
         Expanded(child: ListView(children: [
           for (final doctor in results)
             ListTile(
               title: Text(doctor.name),
-              subtitle: Text([doctor.specialty, doctor.address].where((value) => value.isNotEmpty).join('\n'), maxLines: 3, overflow: TextOverflow.ellipsis),
-              trailing: const Icon(Icons.add_circle_outline),
+              subtitle: Text([
+                doctor.specialty,
+                doctor.address,
+                if (doctor.distanceKm != null)
+                  '${doctor.distanceKm!.toStringAsFixed(1)} km entfernt',
+                'Quelle: ${doctor.sourceName}',
+              ].where((value) => value.isNotEmpty).join('\n'), maxLines: 5, overflow: TextOverflow.ellipsis),
+              trailing: IconButton(
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: 'Prüfen und übernehmen',
+                onPressed: () => _reviewSearchResult(context, doctor),
+              ),
               onTap: () async {
-                final reviewed = await showDialog<Doctor>(context: context, builder: (_) => _DoctorFormDialog(doctor: doctor));
-                if (reviewed != null) {
-                  await ref.read(appControllerProvider).addDoctor(reviewed);
-                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${reviewed.name} gespeichert.')));
-                }
+                await _reviewSearchResult(context, doctor);
               },
             ),
         ])),
@@ -149,6 +184,72 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Schließen'))],
     )));
+  }
+
+  Future<void> _reviewSearchResult(
+    BuildContext context,
+    Doctor doctor,
+  ) async {
+    var candidate = doctor;
+    if (doctor.website.isNotEmpty &&
+        (doctor.phone.isEmpty ||
+            doctor.email.isEmpty ||
+            doctor.appointmentUrl.isEmpty)) {
+      final enrich = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Kontaktdaten ergänzen?'),
+          content: const Text(
+            'Die App kann die öffentlich sichtbaren Kontakt- und Terminlinks '
+            'der hinterlegten Praxiswebseite auslesen. Alle Angaben werden '
+            'anschließend vor dem Speichern angezeigt.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Ohne Ergänzung'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Praxiswebseite prüfen'),
+            ),
+          ],
+        ),
+      );
+      if (enrich == true) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Praxiswebseite wird geprüft …')),
+          );
+        }
+        try {
+          candidate = await doctorSearch.enrichFromWebsite(doctor);
+        } catch (exception) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  exception.toString().replaceFirst('Exception: ', ''),
+                ),
+              ),
+            );
+          }
+        }
+      }
+    }
+    if (!context.mounted) return;
+    final reviewed = await showDialog<Doctor>(
+      context: context,
+      builder: (_) => _DoctorFormDialog(doctor: candidate),
+    );
+    if (reviewed != null) {
+      await ref.read(appControllerProvider).addDoctor(reviewed);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${reviewed.name} gespeichert.')),
+        );
+      }
+    }
   }
 }
 
@@ -202,6 +303,17 @@ class _DoctorFormDialogState extends State<_DoctorFormDialog> {
       _field(website, 'Webseite', Icons.language, type: TextInputType.url),
       _field(appointment, 'Link zur Terminvereinbarung', Icons.event_available_outlined, type: TextInputType.url),
       _field(openingHours, 'Öffnungszeiten', Icons.schedule_outlined),
+      if (widget.doctor != null)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'Quelle: ${widget.doctor!.sourceName}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ),
     ]))),
     actions: [
       TextButton(onPressed: () => Navigator.pop(context), child: const Text('Abbrechen')),
@@ -210,6 +322,10 @@ class _DoctorFormDialogState extends State<_DoctorFormDialog> {
         phone: phone.text.trim(), email: email.text.trim(), website: website.text.trim(), appointmentUrl: appointment.text.trim(),
         openingHours: openingHours.text.trim(),
         latitude: widget.doctor?.latitude, longitude: widget.doctor?.longitude,
+        distanceKm: widget.doctor?.distanceKm,
+        sourceName: widget.doctor?.sourceName ?? 'Manuell',
+        sourceUrl: widget.doctor?.sourceUrl ?? '',
+        lastVerifiedAt: widget.doctor?.lastVerifiedAt,
       )), child: const Text('Speichern')),
     ],
   );
@@ -232,11 +348,24 @@ class _DoctorCard extends ConsumerWidget {
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(doctor.name, style: Theme.of(context).textTheme.titleLarge), if (doctor.specialty.isNotEmpty) Text(doctor.specialty)])),
       PopupMenuButton<String>(onSelected: (value) {
         if (value == 'edit') onEdit();
-        if (value == 'delete') ref.read(appControllerProvider).removeDoctor(doctor.id);
+        if (value == 'delete') _confirmDelete(context, ref);
       }, itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Bearbeiten')), PopupMenuItem(value: 'delete', child: Text('Löschen'))]),
     ]),
     if (doctor.address.isNotEmpty) ...[const SizedBox(height: 14), Text(doctor.address)],
     if (doctor.openingHours.isNotEmpty) ...[const SizedBox(height: 8), Row(children: [const Icon(Icons.schedule_outlined, size: 18), const SizedBox(width: 8), Expanded(child: Text(doctor.openingHours))])],
+    if (doctor.sourceName != 'Manuell') ...[
+      const SizedBox(height: 8),
+      Row(children: [
+        const Icon(Icons.verified_outlined, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'Quelle: ${doctor.sourceName}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ]),
+    ],
     const SizedBox(height: 14),
     Wrap(spacing: 8, runSpacing: 8, children: [
       if (doctor.phone.isNotEmpty) ActionChip(avatar: const Icon(Icons.call, size: 18), label: const Text('Anrufen'), onPressed: () => _open(Uri(scheme: 'tel', path: doctor.phone))),
@@ -256,6 +385,31 @@ class _DoctorCard extends ConsumerWidget {
     final profile = state.profile;
     final body = 'Guten Tag,\n\nich möchte folgende Medikamente als Rezept bestellen:\n\n${medicines.isEmpty ? '• Bitte Medikament ergänzen' : medicines}\n\nPatient: ${profile.name}\nTelefon: ${profile.phone}\n\nMit freundlichen Grüßen\n${profile.name}';
     await _open(Uri(scheme: 'mailto', path: doctor.email, queryParameters: {'subject': 'Rezeptbestellung', 'body': body}));
+  }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Arzt löschen?'),
+        content: Text(
+          '${doctor.name} wird aus deinen gespeicherten Ärzten entfernt.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(appControllerProvider).removeDoctor(doctor.id);
+    }
   }
 
   Future<void> _open(Uri uri) async => launchUrl(uri, mode: LaunchMode.externalApplication);
