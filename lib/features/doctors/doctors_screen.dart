@@ -379,7 +379,7 @@ class _DoctorCard extends ConsumerWidget {
       if (doctor.appointmentUrl.isNotEmpty)
         ActionChip(avatar: const Icon(Icons.event_available_outlined, size: 18), label: const Text('Termin'), onPressed: () => _open(context, _webUri(doctor.appointmentUrl)))
       else if (doctor.website.isNotEmpty)
-        ActionChip(avatar: const Icon(Icons.event_search_outlined, size: 18), label: const Text('Termin anfragen'), tooltip: 'Praxiswebseite öffnen', onPressed: () => _open(context, _webUri(doctor.website))),
+        ActionChip(avatar: const Icon(Icons.event_outlined, size: 18), label: const Text('Termin anfragen'), tooltip: 'Praxiswebseite öffnen', onPressed: () => _open(context, _webUri(doctor.website))),
       if (doctor.address.isNotEmpty) ActionChip(avatar: const Icon(Icons.directions_outlined, size: 18), label: const Text('Route'), onPressed: () => _open(context, Uri.https('www.google.com', '/maps/search/', {'api': '1', 'query': doctor.address}))),
     ]),
   ])));
