@@ -370,23 +370,29 @@ class _DoctorCard extends ConsumerWidget {
     ],
     const SizedBox(height: 14),
     Wrap(spacing: 8, runSpacing: 8, children: [
-      if (doctor.phone.isNotEmpty) ActionChip(avatar: const Icon(Icons.call, size: 18), label: const Text('Anrufen'), onPressed: () => _open(Uri(scheme: 'tel', path: doctor.phone))),
+      if (doctor.phone.isNotEmpty) ActionChip(avatar: const Icon(Icons.call, size: 18), label: const Text('Anrufen'), onPressed: () => _open(context, Uri(scheme: 'tel', path: doctor.phone))),
       if (doctor.email.isNotEmpty) ...[
-        ActionChip(avatar: const Icon(Icons.medication_outlined, size: 18), label: const Text('Rezept'), onPressed: () => _prescriptionEmail(ref)),
-        ActionChip(avatar: const Icon(Icons.email_outlined, size: 18), label: const Text('Nachricht'), onPressed: () => _open(Uri(scheme: 'mailto', path: doctor.email))),
+        ActionChip(avatar: const Icon(Icons.medication_outlined, size: 18), label: const Text('Rezept'), onPressed: () => _prescriptionEmail(context, ref)),
+        ActionChip(avatar: const Icon(Icons.email_outlined, size: 18), label: const Text('Nachricht'), onPressed: () => _open(context, Uri(scheme: 'mailto', path: doctor.email))),
       ],
-      if (doctor.website.isNotEmpty) ActionChip(avatar: const Icon(Icons.language, size: 18), label: const Text('Webseite'), onPressed: () => _open(_webUri(doctor.website))),
-      if (doctor.appointmentUrl.isNotEmpty) ActionChip(avatar: const Icon(Icons.event_available_outlined, size: 18), label: const Text('Termin'), onPressed: () => _open(_webUri(doctor.appointmentUrl))),
-      if (doctor.address.isNotEmpty) ActionChip(avatar: const Icon(Icons.directions_outlined, size: 18), label: const Text('Route'), onPressed: () => _open(Uri.https('www.google.com', '/maps/search/', {'api': '1', 'query': doctor.address}))),
+      if (doctor.website.isNotEmpty) ActionChip(avatar: const Icon(Icons.language, size: 18), label: const Text('Webseite'), onPressed: () => _open(context, _webUri(doctor.website))),
+      if (doctor.appointmentUrl.isNotEmpty)
+        ActionChip(avatar: const Icon(Icons.event_available_outlined, size: 18), label: const Text('Termin'), onPressed: () => _open(context, _webUri(doctor.appointmentUrl)))
+      else if (doctor.website.isNotEmpty)
+        ActionChip(avatar: const Icon(Icons.event_search_outlined, size: 18), label: const Text('Termin anfragen'), tooltip: 'Praxiswebseite öffnen', onPressed: () => _open(context, _webUri(doctor.website))),
+      if (doctor.address.isNotEmpty) ActionChip(avatar: const Icon(Icons.directions_outlined, size: 18), label: const Text('Route'), onPressed: () => _open(context, Uri.https('www.google.com', '/maps/search/', {'api': '1', 'query': doctor.address}))),
     ]),
   ])));
 
-  Future<void> _prescriptionEmail(WidgetRef ref) async {
+  Future<void> _prescriptionEmail(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final state = ref.read(appControllerProvider);
     final medicines = state.medications.map((item) => '• ${item.name}').join('\n');
     final profile = state.profile;
     final body = 'Guten Tag,\n\nich möchte folgende Medikamente als Rezept bestellen:\n\n${medicines.isEmpty ? '• Bitte Medikament ergänzen' : medicines}\n\nPatient: ${profile.name}\nTelefon: ${profile.phone}\n\nMit freundlichen Grüßen\n${profile.name}';
-    await _open(Uri(scheme: 'mailto', path: doctor.email, queryParameters: {'subject': 'Rezeptbestellung', 'body': body}));
+    await _open(context, Uri(scheme: 'mailto', path: doctor.email, queryParameters: {'subject': 'Rezeptbestellung', 'body': body}));
   }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
@@ -414,7 +420,27 @@ class _DoctorCard extends ConsumerWidget {
     }
   }
 
-  Future<void> _open(Uri uri) async => launchUrl(uri, mode: LaunchMode.externalApplication);
+  Future<void> _open(BuildContext? context, Uri uri) async {
+    try {
+      final opened =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened && context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Der Link konnte nicht geöffnet werden.'),
+          ),
+        );
+      }
+    } on Object {
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Der Link ist ungültig oder nicht erreichbar.'),
+          ),
+        );
+      }
+    }
+  }
   Uri _webUri(String value) => Uri.tryParse(value)?.hasScheme == true ? Uri.parse(value) : Uri.parse('https://$value');
 }
 
