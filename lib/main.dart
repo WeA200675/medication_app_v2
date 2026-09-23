@@ -9,7 +9,7 @@ Future<void> main() async {
   final controller = await AppController.create();
   runApp(
     ProviderScope(
-      overrides: [appControllerProvider.overrideWithValue(controller)],
+      overrides: [appControllerProvider.overrideWith((ref) => controller)],
       child: const MedicationApp(),
     ),
   );
