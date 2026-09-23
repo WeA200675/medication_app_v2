@@ -71,5 +71,21 @@ void main() {
 
       expect(result, isEmpty);
     });
+
+    test('kann ungefilterte Praxen als Rückfallebene liefern', () {
+      final filtered = DoctorSearchService.parseOverpass(
+        payload,
+        'Kardiologie',
+        (52.52, 13.405),
+      );
+      final nearby = DoctorSearchService.parseOverpass(
+        payload,
+        '',
+        (52.52, 13.405),
+      );
+
+      expect(filtered, isEmpty);
+      expect(nearby, hasLength(2));
+    });
   });
 }
