@@ -599,7 +599,6 @@ out center tags;''';
       .replaceAll('&#39;', "'")
       .replaceAll('&nbsp;', ' ')
       .trim();
-  }
 
   static Uri _safePublicUri(String value) {
     final cleaned = value.trim();
