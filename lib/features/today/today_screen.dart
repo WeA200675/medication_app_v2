@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_controller.dart';
+import '../../core/quantity_formatter.dart';
 import '../../shared/page_frame.dart';
 
 class TodayScreen extends ConsumerWidget {
@@ -50,7 +51,7 @@ class _NextMedicationCard extends ConsumerWidget {
       const SizedBox(height: 8),
       Text(med == null ? 'Noch nichts geplant' : '${med.time} · ${med.name}', style: Theme.of(context).textTheme.headlineSmall),
       if (med != null) ...[
-        const SizedBox(height: 6), Text('${med.dose.g} ${med.unit}'), const SizedBox(height: 18),
+        const SizedBox(height: 6), Text(formatMedicationQuantity(med.dose, med.unit)), const SizedBox(height: 18),
         FilledButton.icon(onPressed: med.stock <= 0 ? null : () => ref.read(appControllerProvider).takeMedication(med), icon: const Icon(Icons.check), label: const Text('Als genommen markieren')),
       ],
     ])));
