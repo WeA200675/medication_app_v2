@@ -128,4 +128,52 @@ void main() {
       expect(result, isEmpty);
     });
   });
+
+  group('DoctorSearchService.parsePhoton', () {
+    test('liest aktuelle OSM-Praxisergebnisse und begrenzt den Radius', () {
+      final payload = <String, dynamic>{
+        'features': [
+          {
+            'geometry': {
+              'coordinates': [11.75, 48.40],
+            },
+            'properties': {
+              'name': 'Praxis Freising',
+              'osm_type': 'N',
+              'osm_id': 123,
+              'street': 'Hauptstraße',
+              'housenumber': '1',
+              'postcode': '85354',
+              'city': 'Freising',
+              'extra': {
+                'healthcare:speciality': 'internal',
+                'phone': '+49 8161 123',
+              },
+            },
+          },
+          {
+            'geometry': {
+              'coordinates': [13.40, 52.52],
+            },
+            'properties': {
+              'name': 'Zu weit entfernt',
+              'osm_type': 'N',
+              'osm_id': 999,
+            },
+          },
+        ],
+      };
+
+      final result = DoctorSearchService.parsePhoton(
+        payload,
+        (48.40, 11.75),
+        10,
+      );
+
+      expect(result, hasLength(1));
+      expect(result.single.name, 'Praxis Freising');
+      expect(result.single.phone, '+49 8161 123');
+      expect(result.single.sourceName, 'OpenStreetMap über Photon');
+    });
+  });
 }
