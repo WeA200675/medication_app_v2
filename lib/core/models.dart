@@ -92,6 +92,9 @@ class Doctor {
     this.phone = '',
     this.email = '',
     this.website = '',
+    this.appointmentUrl = '',
+    this.latitude,
+    this.longitude,
   });
   final String id;
   final String name;
@@ -100,6 +103,9 @@ class Doctor {
   final String phone;
   final String email;
   final String website;
+  final String appointmentUrl;
+  final double? latitude;
+  final double? longitude;
 
   Map<String, Object?> toMap() => {
         'id': id,
@@ -109,6 +115,9 @@ class Doctor {
         'phone': phone,
         'email': email,
         'website': website,
+        'appointment_url': appointmentUrl,
+        'latitude': latitude,
+        'longitude': longitude,
       };
   factory Doctor.fromMap(Map<String, Object?> map) => Doctor(
         id: map['id']! as String,
@@ -118,6 +127,9 @@ class Doctor {
         phone: map['phone'] as String? ?? '',
         email: map['email'] as String? ?? '',
         website: map['website'] as String? ?? '',
+        appointmentUrl: map['appointment_url'] as String? ?? '',
+        latitude: (map['latitude'] as num?)?.toDouble(),
+        longitude: (map['longitude'] as num?)?.toDouble(),
       );
 }
 
