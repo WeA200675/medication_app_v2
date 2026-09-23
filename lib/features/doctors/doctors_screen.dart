@@ -193,18 +193,17 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
     Doctor doctor,
   ) async {
     var candidate = doctor;
-    if (doctor.website.isNotEmpty &&
-        (doctor.phone.isEmpty ||
-            doctor.email.isEmpty ||
-            doctor.appointmentUrl.isEmpty)) {
+    if (doctor.sourceName.contains('OpenStreetMap')) {
       final enrich = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Kontaktdaten ergänzen?'),
           content: const Text(
-            'Die App kann die öffentlich sichtbaren Kontakt- und Terminlinks '
-            'der hinterlegten Praxiswebseite auslesen. Alle Angaben werden '
-            'anschließend vor dem Speichern angezeigt.',
+            'Die App lädt die vollständigen freien OSM-Detaildaten des '
+            'ausgewählten Treffers. Falls eine offizielle Praxiswebseite '
+            'vorhanden ist, werden zusätzlich öffentlich sichtbare Kontakt- '
+            'und Terminangaben geprüft. Alles wird anschließend vor dem '
+            'Speichern angezeigt.',
           ),
           actions: [
             TextButton(
@@ -213,7 +212,7 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Praxiswebseite prüfen'),
+              child: const Text('Datenquellen prüfen'),
             ),
           ],
         ),
@@ -225,7 +224,7 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
           );
         }
         try {
-          candidate = await doctorSearch.enrichFromWebsite(doctor);
+          candidate = await doctorSearch.enrichFromSources(doctor);
         } catch (exception) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
