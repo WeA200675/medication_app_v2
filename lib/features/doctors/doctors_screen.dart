@@ -116,6 +116,7 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
         const SizedBox(height: 12),
         SizedBox(width: double.infinity, child: FilledButton.icon(
           onPressed: loading ? null : () async {
+            FocusManager.instance.primaryFocus?.unfocus();
             setDialogState(() {
               loading = true;
               error = null;
