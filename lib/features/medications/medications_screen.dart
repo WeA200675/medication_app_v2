@@ -116,7 +116,7 @@ class MedicationsScreen extends ConsumerWidget {
       await _showAdd(
         context,
         ref,
-        initialName: name.text.trim(),
+        initialName: [name.text.trim(), strength.text.trim()].where((value) => value.isNotEmpty).join(' '),
         initialInstructions: manufacturer.text.trim().isEmpty
             ? ''
             : 'Hersteller: ${manufacturer.text.trim()}',
