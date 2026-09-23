@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/app_controller.dart';
 import '../../core/medication_ocr_parser.dart';
 import '../../core/ocr_service.dart';
+import '../../core/quantity_formatter.dart';
 import '../../core/models.dart';
 import '../../shared/page_frame.dart';
 
@@ -125,7 +126,7 @@ class MedicationsScreen extends ConsumerWidget {
   }
 
   Future<void> _composeRefill(Iterable<Medication> meds) async {
-    final list = meds.map((e) => '• ${e.name} (noch ${e.stock.g} ${e.unit})').join('\n');
+    final list = meds.map((e) => '• ${e.name} (noch ${formatMedicationQuantity(e.stock, e.unit)})').join('\n');
     final uri = Uri(scheme: 'mailto', queryParameters: {'subject': 'Medikamente benötigt', 'body': 'Guten Tag,\n\nfolgende Medikamente werden benötigt:\n\n$list\n\nMit freundlichen Grüßen'});
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
@@ -173,7 +174,7 @@ class _MedicationCard extends ConsumerWidget {
     return Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         CircleAvatar(backgroundColor: color.withValues(alpha: .14), child: Icon(Icons.medication, color: color)),
-        const SizedBox(width: 14), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(medication.name, style: Theme.of(context).textTheme.titleLarge), Text('${medication.dose.g} ${medication.unit} · ${medication.time}') ])),
+        const SizedBox(width: 14), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(medication.name, style: Theme.of(context).textTheme.titleLarge), Text('${formatMedicationQuantity(medication.dose, medication.unit)} · ${medication.time}') ])),
         PopupMenuButton<String>(onSelected: (value) {
           if (value == 'refill') _refill(context, ref);
           if (value == 'delete') ref.read(appControllerProvider).removeMedication(medication.id);
@@ -182,7 +183,7 @@ class _MedicationCard extends ConsumerWidget {
       const SizedBox(height: 18),
       LinearProgressIndicator(value: medication.stock <= 0 ? 0 : (medication.stock / (medication.minimumStock * 3).clamp(1, double.infinity)).clamp(0, 1), minHeight: 8, borderRadius: BorderRadius.circular(8), color: color),
       const SizedBox(height: 10),
-      Row(children: [Expanded(child: Text('${medication.stock.g} ${medication.unit} · etwa ${medication.estimatedDays} Tage')), if (medication.needsRefill) Text('Nachbestellen', style: TextStyle(color: color, fontWeight: FontWeight.w700))]),
+      Row(children: [Expanded(child: Text('${formatMedicationQuantity(medication.stock, medication.unit)} · etwa ${medication.estimatedDays} Tage')), if (medication.needsRefill) Text('Nachbestellen', style: TextStyle(color: color, fontWeight: FontWeight.w700))]),
       const SizedBox(height: 16),
       FilledButton.tonalIcon(onPressed: medication.stock < medication.dose ? null : () => ref.read(appControllerProvider).takeMedication(medication), icon: const Icon(Icons.check), label: const Text('Einnahme bestätigen')),
     ])));
