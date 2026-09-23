@@ -15,7 +15,7 @@ class AppDatabase {
     final root = await getDatabasesPath();
     final db = await openDatabase(
       p.join(root, 'medication_v2.db'),
-      version: 1,
+      version: 2,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, _) async {
         await db.execute('''CREATE TABLE medications(
@@ -34,10 +34,20 @@ class AppDatabase {
         await db.execute('''CREATE TABLE doctors(
           id TEXT PRIMARY KEY, name TEXT NOT NULL, specialty TEXT NOT NULL,
           address TEXT NOT NULL, phone TEXT NOT NULL, email TEXT NOT NULL,
-          website TEXT NOT NULL)''');
+          website TEXT NOT NULL, appointment_url TEXT NOT NULL DEFAULT '',
+          latitude REAL, longitude REAL)''');
         await db.execute('''CREATE TABLE documents(
           id TEXT PRIMARY KEY, title TEXT NOT NULL, path TEXT NOT NULL,
           created_at TEXT NOT NULL, ocr_text TEXT NOT NULL)''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            "ALTER TABLE doctors ADD COLUMN appointment_url TEXT NOT NULL DEFAULT ''",
+          );
+          await db.execute('ALTER TABLE doctors ADD COLUMN latitude REAL');
+          await db.execute('ALTER TABLE doctors ADD COLUMN longitude REAL');
+        }
       },
     );
     return AppDatabase._(db);
