@@ -96,8 +96,9 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
     List<String> notices = const [];
     List<Doctor> results = const [];
     await showDialog<void>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      scrollable: true,
       title: const Text('Arzt im Umkreis suchen'),
-      content: SizedBox(width: 600, height: 520, child: Column(children: [
+      content: SizedBox(width: 600, child: Column(mainAxisSize: MainAxisSize.min, children: [
         DropdownButtonFormField<String>(
           initialValue: specialty,
           decoration: const InputDecoration(labelText: 'Fachrichtung'),
@@ -156,7 +157,7 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
               ],
             ),
           ),
-        Expanded(child: ListView(children: [
+        SizedBox(height: 220, child: ListView(children: [
           for (final doctor in results)
             ListTile(
               title: Text(doctor.name),
@@ -177,7 +178,7 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
               },
             ),
         ])),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Wrap(alignment: WrapAlignment.spaceBetween, crossAxisAlignment: WrapCrossAlignment.center, spacing: 8, runSpacing: 4, children: [
           TextButton.icon(onPressed: () => launchUrl(Uri.parse('https://arztsuche.116117.de/'), mode: LaunchMode.externalApplication), icon: const Icon(Icons.health_and_safety_outlined), label: const Text('116117-Arztsuche')),
           const Text('Daten © OpenStreetMap-Mitwirkende', style: TextStyle(fontSize: 11)),
         ]),
