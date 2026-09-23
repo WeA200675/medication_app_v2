@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_controller.dart';
+import '../../core/medication_ocr_parser.dart';
+import '../../core/ocr_service.dart';
 import '../../core/models.dart';
 import '../../shared/page_frame.dart';
 
@@ -15,7 +18,10 @@ class MedicationsScreen extends ConsumerWidget {
     return PageFrame(
       title: 'Medikamente',
       subtitle: 'Einnahme, Reichweite und Vorrat an einem Ort.',
-      action: IconButton.filledTonal(onPressed: () => _showAdd(context, ref), icon: const Icon(Icons.add), tooltip: 'Medikament hinzufügen'),
+      action: Row(mainAxisSize: MainAxisSize.min, children: [
+        IconButton.filledTonal(onPressed: () => _scanMedication(context, ref), icon: const Icon(Icons.document_scanner_outlined), tooltip: 'Medikament scannen'),
+        IconButton.filledTonal(onPressed: () => _showAdd(context, ref), icon: const Icon(Icons.add), tooltip: 'Medikament hinzufügen'),
+      ]),
       child: state.medications.isEmpty
           ? const _EmptyMedications()
           : Column(children: [
@@ -29,17 +35,107 @@ class MedicationsScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _scanMedication(BuildContext context, WidgetRef ref) async {
+    final image = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      imageQuality: 95,
+      maxWidth: 2400,
+    );
+    if (image == null || !context.mounted) return;
+
+    final rawText = await OcrService.recognize(image.path);
+    if (!context.mounted) return;
+    final parsed = MedicationOcrParser.parse(rawText);
+    if (parsed.medicationName.isEmpty) {
+      await _showScanReview(context, ref, parsed);
+      return;
+    }
+    await _showScanReview(context, ref, parsed);
+  }
+
+  Future<void> _showScanReview(
+    BuildContext context,
+    WidgetRef ref,
+    MedicationScanResult parsed,
+  ) async {
+    final name = TextEditingController(text: parsed.medicationName);
+    final strength = TextEditingController(text: parsed.strength);
+    final manufacturer = TextEditingController(text: parsed.manufacturer);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Scan prüfen'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Bitte prüfe die Erkennung. Hersteller und Medikament werden getrennt gespeichert.',
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: name,
+              autofocus: name.text.isEmpty,
+              decoration: const InputDecoration(labelText: 'Medikamentenname *'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: strength,
+              decoration: const InputDecoration(labelText: 'Stärke'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: manufacturer,
+              decoration: const InputDecoration(labelText: 'Hersteller (optional)'),
+            ),
+            const SizedBox(height: 12),
+            ExpansionTile(
+              title: const Text('Erkannten Rohtext anzeigen'),
+              children: [
+                SelectableText(
+                  parsed.rawText.isEmpty ? 'Kein Text erkannt.' : parsed.rawText,
+                ),
+              ],
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Verwerfen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Übernehmen'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && name.text.trim().isNotEmpty) {
+      await _showAdd(
+        context,
+        ref,
+        initialName: name.text.trim(),
+        initialInstructions: manufacturer.text.trim().isEmpty
+            ? ''
+            : 'Hersteller: ${manufacturer.text.trim()}',
+      );
+    }
+  }
+
   Future<void> _composeRefill(Iterable<Medication> meds) async {
     final list = meds.map((e) => '• ${e.name} (noch ${e.stock.g} ${e.unit})').join('\n');
     final uri = Uri(scheme: 'mailto', queryParameters: {'subject': 'Medikamente benötigt', 'body': 'Guten Tag,\n\nfolgende Medikamente werden benötigt:\n\n$list\n\nMit freundlichen Grüßen'});
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  Future<void> _showAdd(BuildContext context, WidgetRef ref) async {
-    final name = TextEditingController();
+  Future<void> _showAdd(BuildContext context, WidgetRef ref, {String initialName = '', String initialInstructions = ''}) async {
+    final name = TextEditingController(text: initialName);
     final dose = TextEditingController(text: '1');
     final stock = TextEditingController(text: '30');
     final minimum = TextEditingController(text: '7');
+    final instructions = TextEditingController(text: initialInstructions);
     TimeOfDay selectedTime = const TimeOfDay(hour: 8, minute: 0);
     final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
       title: const Text('Medikament hinzufügen'),
@@ -48,6 +144,7 @@ class MedicationsScreen extends ConsumerWidget {
         const SizedBox(height: 12), TextField(controller: dose, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Dosis')),
         const SizedBox(height: 12), TextField(controller: stock, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Bestand')),
         const SizedBox(height: 12), TextField(controller: minimum, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Mindestbestand')),
+        const SizedBox(height: 12), TextField(controller: instructions, decoration: const InputDecoration(labelText: 'Hinweise / Hersteller')), 
         const SizedBox(height: 12), ListTile(title: const Text('Einnahmezeit'), subtitle: Text(selectedTime.format(context)), trailing: const Icon(Icons.schedule), onTap: () async {
           final value = await showTimePicker(context: context, initialTime: selectedTime);
           if (value != null) setDialogState(() => selectedTime = value);
@@ -59,7 +156,7 @@ class MedicationsScreen extends ConsumerWidget {
       await ref.read(appControllerProvider).addMedication(
         name: name.text.trim(), dose: _number(dose.text, 1), unit: 'Tablette',
         time: '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}',
-        stock: _number(stock.text, 0), minimumStock: _number(minimum.text, 7),
+        stock: _number(stock.text, 0), minimumStock: _number(minimum.text, 7), instructions: instructions.text.trim(),
       );
     }
   }
