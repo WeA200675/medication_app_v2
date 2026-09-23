@@ -88,4 +88,44 @@ void main() {
       expect(nearby, hasLength(2));
     });
   });
+
+  group('DoctorSearchService.extractAppointmentLink', () {
+    test('erkennt Termin über sichtbaren Linktext', () {
+      const html =
+          '<a href="/service/online">Jetzt Termin vereinbaren</a>';
+
+      final result = DoctorSearchService.extractAppointmentLink(
+        html,
+        Uri.parse('https://praxis.example.org/start'),
+      );
+
+      expect(result, 'https://praxis.example.org/service/online');
+    });
+
+    test('bevorzugt einen Buchungsdienst', () {
+      const html = '''
+        <a href="/kontakt">Termin und Kontakt</a>
+        <a href="https://www.doctolib.de/praxis/arzt">Online buchen</a>
+      ''';
+
+      final result = DoctorSearchService.extractAppointmentLink(
+        html,
+        Uri.parse('https://praxis.example.org'),
+      );
+
+      expect(result, 'https://www.doctolib.de/praxis/arzt');
+    });
+
+    test('ignoriert Javascript-Links', () {
+      const html =
+          '<a href="javascript:openBooking()">Termin vereinbaren</a>';
+
+      final result = DoctorSearchService.extractAppointmentLink(
+        html,
+        Uri.parse('https://praxis.example.org'),
+      );
+
+      expect(result, isEmpty);
+    });
+  });
 }
