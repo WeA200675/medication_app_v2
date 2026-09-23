@@ -93,6 +93,7 @@ class Doctor {
     this.email = '',
     this.website = '',
     this.appointmentUrl = '',
+    this.openingHours = '',
     this.latitude,
     this.longitude,
   });
@@ -104,6 +105,7 @@ class Doctor {
   final String email;
   final String website;
   final String appointmentUrl;
+  final String openingHours;
   final double? latitude;
   final double? longitude;
 
@@ -116,6 +118,7 @@ class Doctor {
         'email': email,
         'website': website,
         'appointment_url': appointmentUrl,
+        'opening_hours': openingHours,
         'latitude': latitude,
         'longitude': longitude,
       };
@@ -128,6 +131,7 @@ class Doctor {
         email: map['email'] as String? ?? '',
         website: map['website'] as String? ?? '',
         appointmentUrl: map['appointment_url'] as String? ?? '',
+        openingHours: map['opening_hours'] as String? ?? '',
         latitude: (map['latitude'] as num?)?.toDouble(),
         longitude: (map['longitude'] as num?)?.toDouble(),
       );
