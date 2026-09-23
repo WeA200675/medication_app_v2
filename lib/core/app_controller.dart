@@ -107,6 +107,9 @@ class AppController extends ChangeNotifier {
       openingHours: value.openingHours,
       latitude: value.latitude,
       longitude: value.longitude,
+      sourceName: value.sourceName,
+      sourceUrl: value.sourceUrl,
+      lastVerifiedAt: value.lastVerifiedAt,
     ));
     await refresh();
   }
