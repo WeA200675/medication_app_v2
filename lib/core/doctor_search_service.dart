@@ -38,9 +38,9 @@ class DoctorSearchService {
     'Accept-Language': 'de,en;q=0.7',
   };
   static const _overpassEndpoints = [
+    'https://overpass.private.coffee/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
     'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://overpass.nchc.org.tw/api/interpreter',
   ];
   static const _aliases = <String, List<String>>{
     'hausarzt': [
@@ -133,7 +133,6 @@ class DoctorSearchService {
       );
     }
 
-    Object? lastError;
     for (final endpoint in _overpassEndpoints) {
       try {
         final overpass = await _searchOverpass(
@@ -158,8 +157,8 @@ class DoctorSearchService {
                     ]
               : const [],
         );
-      } catch (error) {
-        lastError = error;
+      } on Object {
+        // Try the next independently operated public instance.
       }
     }
 
@@ -181,7 +180,7 @@ class DoctorSearchService {
     }
     throw DoctorSearchException(
       'Die freien Kartendienste sind derzeit nicht erreichbar. '
-      'Bitte später erneut versuchen. (${_shortError(lastError)})',
+      'Bitte Internetverbindung prüfen oder später erneut versuchen.',
     );
   }
 
@@ -230,7 +229,7 @@ class DoctorSearchService {
     String query,
   ) async {
     final radiusMeters = (radiusKm.clamp(1, 100) * 1000).round();
-    final overpassQuery = '''[out:json][timeout:25];
+    final overpassQuery = '''[out:json][timeout:12];
 (
   nwr(around:$radiusMeters,${center.$1},${center.$2})["amenity"="doctors"];
   nwr(around:$radiusMeters,${center.$1},${center.$2})["healthcare"="doctor"];
@@ -248,7 +247,7 @@ out center tags;''';
           },
           body: {'data': overpassQuery},
         )
-        .timeout(const Duration(seconds: 32));
+        .timeout(const Duration(seconds: 18));
     if (response.statusCode != 200) {
       throw DoctorSearchException('Overpass HTTP ${response.statusCode}');
     }
@@ -329,12 +328,11 @@ out center tags;''';
     double radiusKm,
   ) async {
     try {
-      final label =
-          query.trim().isEmpty || _normalize(query) == 'alle fachrichtungen'
-              ? 'Arzt'
-              : query.trim();
       final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
-        'q': '$label, $location',
+        // A generic search remains useful when specialty metadata is absent.
+        // Filtering happens locally; if it finds nothing, nearby practices are
+        // still returned with a visible fallback notice.
+        'q': 'Arzt, $location',
         'format': 'jsonv2',
         'addressdetails': '1',
         'limit': '30',
@@ -346,16 +344,18 @@ out center tags;''';
       if (response.statusCode != 200) return const [];
       final decoded = jsonDecode(response.body);
       if (decoded is! List) return const [];
-      return decoded
+      final nearby = decoded
           .whereType<Map<String, dynamic>>()
           .map((item) => _fromNominatim(item, center))
           .where((doctor) =>
               doctor.name.isNotEmpty &&
-              (doctor.distanceKm ?? double.infinity) <= radiusKm &&
-              _matches(doctor, query))
-          .toList()
-        ..sort((a, b) => (a.distanceKm ?? double.infinity)
-            .compareTo(b.distanceKm ?? double.infinity));
+              (doctor.distanceKm ?? double.infinity) <= radiusKm)
+          .toList();
+      nearby.sort((a, b) => (a.distanceKm ?? double.infinity)
+          .compareTo(b.distanceKm ?? double.infinity));
+      final matching =
+          nearby.where((doctor) => _matches(doctor, query)).toList();
+      return matching.isNotEmpty ? matching : nearby;
     } on Object {
       return const [];
     }
@@ -572,12 +572,6 @@ out center tags;''';
       .replaceAll('ß', 'ss')
       .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
       .trim();
-
-  static String _shortError(Object? error) {
-    if (error == null) return 'unbekannter Fehler';
-    final value = error.toString().replaceFirst('Exception: ', '');
-    return value.length <= 80 ? value : '${value.substring(0, 77)}...';
-  }
 
   void close() => _client.close();
 }
