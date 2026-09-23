@@ -39,7 +39,6 @@ class DoctorSearchService {
   };
   static const _overpassEndpoints = [
     'https://overpass.private.coffee/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
     'https://overpass-api.de/api/interpreter',
   ];
   static const _aliases = <String, List<String>>{
@@ -133,6 +132,23 @@ class DoctorSearchService {
       );
     }
 
+    // Photon is optimized for fast place searches and avoids the frequent
+    // overloads of public Overpass servers on mobile networks.
+    try {
+      final photon = await _searchPhoton(center, radiusKm, query);
+      if (photon.isNotEmpty) {
+        return DoctorSearchResult(
+          doctors: photon,
+          notices: const [
+            'Schnelle OpenStreetMap-Suche. Kontaktdaten können je nach '
+                'Praxiseintrag unvollständig sein.',
+          ],
+        );
+      }
+    } on Object {
+      // Continue with the richer Overpass query.
+    }
+
     for (final endpoint in _overpassEndpoints) {
       try {
         final overpass = await _searchOverpass(
@@ -223,6 +239,119 @@ class DoctorSearchService {
       sourceUrl: uri.toString(),
       lastVerifiedAt: DateTime.now(),
     );
+  }
+
+  Future<List<Doctor>> _searchPhoton(
+    (double, double) center,
+    double radiusKm,
+    String query,
+  ) async {
+    final radius = radiusKm.clamp(1, 100).toDouble();
+    final uri = Uri.https('photon.komoot.io', '/reverse', {
+      'lat': '${center.$1}',
+      'lon': '${center.$2}',
+      'radius': '$radius',
+      'limit': '50',
+      'lang': 'de',
+      'osm_tag': 'amenity:doctors',
+    });
+    final response = await _client
+        .get(uri, headers: _headers)
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) {
+      throw DoctorSearchException('Photon HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Ungültige Photon-Antwort');
+    }
+    final all = parsePhoton(decoded, center, radius);
+    final matching =
+        all.where((doctor) => _matches(doctor, query)).toList();
+    return matching.isNotEmpty ? matching : all;
+  }
+
+  static List<Doctor> parsePhoton(
+    Map<String, dynamic> body,
+    (double, double) center,
+    double radiusKm,
+  ) {
+    final features = body['features'] as List<dynamic>? ?? const [];
+    final doctors = <Doctor>[];
+    final identities = <String>{};
+    for (final feature in features.whereType<Map<String, dynamic>>()) {
+      final properties = Map<String, dynamic>.from(
+        feature['properties'] as Map? ?? const {},
+      );
+      final geometry = Map<String, dynamic>.from(
+        feature['geometry'] as Map? ?? const {},
+      );
+      final coordinates = geometry['coordinates'] as List<dynamic>?;
+      if (coordinates == null || coordinates.length < 2) continue;
+      final lon = (coordinates[0] as num?)?.toDouble();
+      final lat = (coordinates[1] as num?)?.toDouble();
+      if (lat == null || lon == null) continue;
+      final distance = _distance(center.$1, center.$2, lat, lon);
+      if (distance > radiusKm) continue;
+      final extra = Map<String, dynamic>.from(
+        properties['extra'] as Map? ?? const {},
+      );
+      final name = '${properties['name'] ?? ''}'.trim();
+      if (name.isEmpty) continue;
+      final address = [
+        [
+          '${properties['street'] ?? ''}'.trim(),
+          '${properties['housenumber'] ?? ''}'.trim(),
+        ].where((value) => value.isNotEmpty).join(' '),
+        [
+          '${properties['postcode'] ?? ''}'.trim(),
+          '${properties['city'] ?? properties['district'] ?? ''}'.trim(),
+        ].where((value) => value.isNotEmpty).join(' '),
+      ].where((value) => value.isNotEmpty).join(', ');
+      final osmType = '${properties['osm_type'] ?? 'N'}'.toUpperCase();
+      final type = const {'N': 'node', 'W': 'way', 'R': 'relation'}[osmType] ??
+          'node';
+      final osmId = '${properties['osm_id'] ?? name.hashCode}';
+      final identity = '${_normalize(name)}|${_normalize(address)}';
+      if (!identities.add(identity)) continue;
+      doctors.add(
+        Doctor(
+          id: 'osm-$type-$osmId',
+          name: name,
+          specialty: _first(extra, [
+            'healthcare:speciality',
+            'speciality',
+          ]),
+          address: address,
+          phone: _first(extra, [
+            'contact:phone',
+            'phone',
+            'contact:mobile',
+          ]),
+          email: _first(extra, ['contact:email', 'email']),
+          website: _first(extra, [
+            'contact:website',
+            'website',
+          ]),
+          appointmentUrl: _firstWebUrl(extra, [
+            'contact:appointment',
+            'appointment',
+            'contact:booking',
+            'booking',
+          ]),
+          openingHours: _first(extra, ['opening_hours']),
+          latitude: lat,
+          longitude: lon,
+          distanceKm: distance,
+          sourceName: 'OpenStreetMap über Photon',
+          sourceUrl: 'https://www.openstreetmap.org/$type/$osmId',
+          lastVerifiedAt: DateTime.now(),
+        ),
+      );
+    }
+    doctors.sort((a, b) => (a.distanceKm ?? double.infinity)
+        .compareTo(b.distanceKm ?? double.infinity));
+    return doctors;
   }
 
   Future<({List<Doctor> doctors, bool relaxed})> _searchOverpass(
