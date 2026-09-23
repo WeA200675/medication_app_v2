@@ -241,6 +241,125 @@ class DoctorSearchService {
     );
   }
 
+  /// Reloads the selected OSM object and then checks its official website.
+  /// This is intentionally one selected record at a time, not bulk scraping.
+  Future<Doctor> enrichFromSources(Doctor doctor) async {
+    var result = doctor;
+    try {
+      result = await enrichFromOpenStreetMap(result);
+    } on Object {
+      // A Photon result can still be useful if the OSM detail endpoint is
+      // temporarily unavailable.
+    }
+    if (result.website.isNotEmpty) {
+      try {
+        result = await enrichFromWebsite(result);
+      } on Object {
+        // Keep the verified OSM fields when the practice site is unavailable.
+      }
+    }
+    return result;
+  }
+
+  Future<Doctor> enrichFromOpenStreetMap(Doctor doctor) async {
+    final match = RegExp(
+      r'/((?:node|way|relation))/(d+)(?:$|[/?#])',
+      caseSensitive: false,
+    ).firstMatch(doctor.sourceUrl);
+    if (match == null) {
+      throw const DoctorSearchException(
+        'Für diesen Treffer ist keine OSM-Detailquelle hinterlegt.',
+      );
+    }
+    final type = match.group(1)!.toLowerCase();
+    final id = match.group(2)!;
+    final response = await _client
+        .get(
+          Uri.parse('https://api.openstreetmap.org/api/0.6/$type/$id.json'),
+          headers: _headers,
+        )
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) {
+      throw DoctorSearchException('OSM-Detaildaten HTTP ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body);
+    if (body is! Map<String, dynamic>) {
+      throw const FormatException('Ungültige OSM-Detailantwort');
+    }
+    final elements = body['elements'] as List<dynamic>? ?? const [];
+    final element = elements.whereType<Map<String, dynamic>>().firstWhere(
+          (value) => value['tags'] is Map,
+          orElse: () => const <String, dynamic>{},
+        );
+    final tags = Map<String, dynamic>.from(element['tags'] as Map? ?? const {});
+    final center = element['center'] as Map<String, dynamic>?;
+    final latitude = (element['lat'] as num?)?.toDouble() ??
+        (center?['lat'] as num?)?.toDouble() ??
+        doctor.latitude;
+    final longitude = (element['lon'] as num?)?.toDouble() ??
+        (center?['lon'] as num?)?.toDouble() ??
+        doctor.longitude;
+    return doctor.copyWith(
+      name: _first(tags, ['name', 'operator']).isNotEmpty
+          ? _first(tags, ['name', 'operator'])
+          : doctor.name,
+      specialty: _specialty(tags).isNotEmpty
+          ? _specialty(tags)
+          : doctor.specialty,
+      address: _address(tags).isNotEmpty ? _address(tags) : doctor.address,
+      phone: _first(tags, [
+        'contact:phone',
+        'phone',
+        'contact:mobile',
+        'mobile',
+      ]).isNotEmpty
+          ? _first(tags, [
+              'contact:phone',
+              'phone',
+              'contact:mobile',
+              'mobile',
+            ])
+          : doctor.phone,
+      email: _first(tags, ['contact:email', 'email']).isNotEmpty
+          ? _first(tags, ['contact:email', 'email'])
+          : doctor.email,
+      website: _firstWebUrl(tags, [
+        'contact:website',
+        'website',
+        'url',
+      ]).isNotEmpty
+          ? _firstWebUrl(tags, [
+              'contact:website',
+              'website',
+              'url',
+            ])
+          : doctor.website,
+      appointmentUrl: _firstWebUrl(tags, [
+        'contact:appointment',
+        'appointment',
+        'contact:booking',
+        'booking',
+        'reservation',
+      ]).isNotEmpty
+          ? _firstWebUrl(tags, [
+              'contact:appointment',
+              'appointment',
+              'contact:booking',
+              'booking',
+              'reservation',
+            ])
+          : doctor.appointmentUrl,
+      openingHours: _first(tags, ['opening_hours']).isNotEmpty
+          ? _first(tags, ['opening_hours'])
+          : doctor.openingHours,
+      latitude: latitude,
+      longitude: longitude,
+      sourceName: 'OpenStreetMap-Detaildaten',
+      sourceUrl: doctor.sourceUrl,
+      lastVerifiedAt: DateTime.now(),
+    );
+  }
+
   Future<List<Doctor>> _searchPhoton(
     (double, double) center,
     double radiusKm,
