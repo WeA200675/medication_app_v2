@@ -128,23 +128,22 @@ class MedicationOcrParser {
     };
     for (final candidate in candidates) {
       final escaped = RegExp.escape(candidate);
-      if (RegExp('^' + escaped + r'.hasMatch(result)) {
+      if (RegExp('^' + escaped + r'$', caseSensitive: false).hasMatch(result)) {
         return '';
       }
       result = result
           .replaceFirst(
-            RegExp('^$escaped(?:\\s+|[-–—]+)', caseSensitive: false),
+            RegExp('^' + escaped + r'(?:\s+|[-–—]+)', caseSensitive: false),
             '',
           )
           .replaceFirst(
-            RegExp('(?:\\s+|[-–—]+)$escaped$', caseSensitive: false),
+            RegExp(r'(?:\s+|[-–—]+)' + escaped + r'$', caseSensitive: false),
             '',
           )
           .trim();
     }
     return result;
   }
-
   static bool _isMedicationCandidate(String value) {
     if (value.isEmpty || !RegExp(r'[A-Za-zÄÖÜäöüß]{3}').hasMatch(value)) {
       return false;
