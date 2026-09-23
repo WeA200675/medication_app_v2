@@ -15,7 +15,7 @@ class AppDatabase {
     final root = await getDatabasesPath();
     final db = await openDatabase(
       p.join(root, 'medication_v2.db'),
-      version: 3,
+      version: 4,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, _) async {
         await db.execute('''CREATE TABLE medications(
@@ -36,7 +36,10 @@ class AppDatabase {
           address TEXT NOT NULL, phone TEXT NOT NULL, email TEXT NOT NULL,
           website TEXT NOT NULL, appointment_url TEXT NOT NULL DEFAULT '',
           latitude REAL, longitude REAL,
-          opening_hours TEXT NOT NULL DEFAULT '')''');
+          opening_hours TEXT NOT NULL DEFAULT '',
+          source_name TEXT NOT NULL DEFAULT 'Manuell',
+          source_url TEXT NOT NULL DEFAULT '',
+          last_verified_at TEXT)''');
         await db.execute('''CREATE TABLE documents(
           id TEXT PRIMARY KEY, title TEXT NOT NULL, path TEXT NOT NULL,
           created_at TEXT NOT NULL, ocr_text TEXT NOT NULL)''');
@@ -52,6 +55,17 @@ class AppDatabase {
         if (oldVersion < 3) {
           await db.execute(
             "ALTER TABLE doctors ADD COLUMN opening_hours TEXT NOT NULL DEFAULT ''",
+          );
+        }
+        if (oldVersion < 4) {
+          await db.execute(
+            "ALTER TABLE doctors ADD COLUMN source_name TEXT NOT NULL DEFAULT 'Manuell'",
+          );
+          await db.execute(
+            "ALTER TABLE doctors ADD COLUMN source_url TEXT NOT NULL DEFAULT ''",
+          );
+          await db.execute(
+            'ALTER TABLE doctors ADD COLUMN last_verified_at TEXT',
           );
         }
       },
