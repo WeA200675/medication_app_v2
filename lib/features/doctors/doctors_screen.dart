@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -192,64 +194,38 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
     BuildContext context,
     Doctor doctor,
   ) async {
-    var candidate = doctor;
-    if (doctor.sourceName.contains('OpenStreetMap')) {
-      final enrich = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Kontaktdaten ergänzen?'),
-          content: const Text(
-            'Die App lädt die vollständigen freien OSM-Detaildaten des '
-            'ausgewählten Treffers. Falls eine offizielle Praxiswebseite '
-            'vorhanden ist, werden zusätzlich öffentlich sichtbare Kontakt- '
-            'und Terminangaben geprüft. Alles wird anschließend vor dem '
-            'Speichern angezeigt.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Ohne Ergänzung'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Datenquellen prüfen'),
-            ),
-          ],
+    final controller = ref.read(appControllerProvider);
+    final messenger = ScaffoldMessenger.of(this.context);
+    Navigator.of(context).pop();
+    await controller.addDoctor(doctor);
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          '${doctor.name} gespeichert. Kontaktdaten werden im Hintergrund '
+          'ergänzt.',
         ),
-      );
-      if (enrich == true) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Praxiswebseite wird geprüft …')),
-          );
-        }
-        try {
-          candidate = await doctorSearch.enrichFromSources(doctor);
-        } catch (exception) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  exception.toString().replaceFirst('Exception: ', ''),
-                ),
-              ),
-            );
-          }
-        }
-      }
-    }
-    if (!context.mounted) return;
-    final reviewed = await showDialog<Doctor>(
-      context: context,
-      builder: (_) => _DoctorFormDialog(doctor: candidate),
+        duration: const Duration(seconds: 3),
+      ),
     );
-    if (reviewed != null) {
-      await ref.read(appControllerProvider).addDoctor(reviewed);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${reviewed.name} gespeichert.')),
+    unawaited(_enrichSavedDoctor(doctor));
+  }
+
+  Future<void> _enrichSavedDoctor(Doctor doctor) async {
+    try {
+      final enriched = await doctorSearch.enrichFromSources(doctor);
+      if (!mounted || enriched == doctor) return;
+      await ref.read(appControllerProvider).addDoctor(enriched);
+      if (mounted) {
+        ScaffoldMessenger.of(this.context).showSnackBar(
+          SnackBar(
+            content: Text('${doctor.name}: Kontaktdaten aktualisiert.'),
+            duration: const Duration(seconds: 3),
+          ),
         );
       }
+    } on Object {
+      // The initial OSM result remains saved and usable if enrichment fails.
     }
   }
 }
