@@ -1,0 +1,33 @@
+name: medication_app_v2
+description: Moderne, lokal-first Medikamentenverwaltung.
+publish_to: none
+version: 2.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.6.1
+  sqflite: ^2.4.2
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  shared_preferences: ^2.5.3
+  image_picker: ^1.1.2
+  google_mlkit_text_recognition: ^0.13.0
+  file_picker: ^9.2.1
+  url_launcher: ^6.3.1
+  http: ^1.3.0
+  share_plus: ^10.1.4
+  intl: ^0.20.2
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
