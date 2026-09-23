@@ -103,6 +103,9 @@ class AppController extends ChangeNotifier {
       id: value.id.isEmpty ? _uuid.v4() : value.id,
       name: value.name, specialty: value.specialty, address: value.address,
       phone: value.phone, email: value.email, website: value.website,
+      appointmentUrl: value.appointmentUrl,
+      latitude: value.latitude,
+      longitude: value.longitude,
     ));
     await refresh();
   }
