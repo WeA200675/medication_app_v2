@@ -104,6 +104,7 @@ class AppController extends ChangeNotifier {
       name: value.name, specialty: value.specialty, address: value.address,
       phone: value.phone, email: value.email, website: value.website,
       appointmentUrl: value.appointmentUrl,
+      openingHours: value.openingHours,
       latitude: value.latitude,
       longitude: value.longitude,
     ));
