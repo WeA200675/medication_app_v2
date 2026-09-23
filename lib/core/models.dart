@@ -96,6 +96,10 @@ class Doctor {
     this.openingHours = '',
     this.latitude,
     this.longitude,
+    this.distanceKm,
+    this.sourceName = 'Manuell',
+    this.sourceUrl = '',
+    this.lastVerifiedAt,
   });
   final String id;
   final String name;
@@ -108,6 +112,44 @@ class Doctor {
   final String openingHours;
   final double? latitude;
   final double? longitude;
+  final double? distanceKm;
+  final String sourceName;
+  final String sourceUrl;
+  final DateTime? lastVerifiedAt;
+
+  Doctor copyWith({
+    String? name,
+    String? specialty,
+    String? address,
+    String? phone,
+    String? email,
+    String? website,
+    String? appointmentUrl,
+    String? openingHours,
+    double? latitude,
+    double? longitude,
+    double? distanceKm,
+    String? sourceName,
+    String? sourceUrl,
+    DateTime? lastVerifiedAt,
+  }) =>
+      Doctor(
+        id: id,
+        name: name ?? this.name,
+        specialty: specialty ?? this.specialty,
+        address: address ?? this.address,
+        phone: phone ?? this.phone,
+        email: email ?? this.email,
+        website: website ?? this.website,
+        appointmentUrl: appointmentUrl ?? this.appointmentUrl,
+        openingHours: openingHours ?? this.openingHours,
+        latitude: latitude ?? this.latitude,
+        longitude: longitude ?? this.longitude,
+        distanceKm: distanceKm ?? this.distanceKm,
+        sourceName: sourceName ?? this.sourceName,
+        sourceUrl: sourceUrl ?? this.sourceUrl,
+        lastVerifiedAt: lastVerifiedAt ?? this.lastVerifiedAt,
+      );
 
   Map<String, Object?> toMap() => {
         'id': id,
@@ -121,6 +163,9 @@ class Doctor {
         'opening_hours': openingHours,
         'latitude': latitude,
         'longitude': longitude,
+        'source_name': sourceName,
+        'source_url': sourceUrl,
+        'last_verified_at': lastVerifiedAt?.toIso8601String(),
       };
   factory Doctor.fromMap(Map<String, Object?> map) => Doctor(
         id: map['id']! as String,
@@ -134,6 +179,10 @@ class Doctor {
         openingHours: map['opening_hours'] as String? ?? '',
         latitude: (map['latitude'] as num?)?.toDouble(),
         longitude: (map['longitude'] as num?)?.toDouble(),
+        sourceName: map['source_name'] as String? ?? 'Manuell',
+        sourceUrl: map['source_url'] as String? ?? '',
+        lastVerifiedAt:
+            DateTime.tryParse(map['last_verified_at'] as String? ?? ''),
       );
 }
 
