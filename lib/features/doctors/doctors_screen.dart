@@ -16,6 +16,20 @@ class DoctorsScreen extends ConsumerStatefulWidget {
 
 class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
   String filter = '';
+  final localSearchController = TextEditingController();
+
+  static const specialties = [
+    'Alle Fachrichtungen', 'Hausarzt', 'Allgemeinmedizin', 'Innere Medizin',
+    'Kardiologie', 'Dermatologie', 'Orthopädie', 'Neurologie', 'Psychiatrie',
+    'Psychotherapie', 'Gynäkologie', 'Urologie', 'Pädiatrie', 'HNO',
+    'Augenheilkunde', 'Zahnmedizin', 'Gastroenterologie', 'Diabetologie',
+  ];
+
+  @override
+  void dispose() {
+    localSearchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,8 +56,13 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
       ),
       child: Column(children: [
         SearchBar(
+          controller: localSearchController,
           hintText: 'Gespeicherte Ärzte oder Fachrichtung filtern',
           leading: const Icon(Icons.search),
+          trailing: filter.isEmpty ? null : [IconButton(
+            icon: const Icon(Icons.close), tooltip: 'Suchbegriff löschen',
+            onPressed: () { localSearchController.clear(); setState(() => filter = ''); },
+          )],
           onChanged: (value) => setState(() => filter = value),
         ),
         const SizedBox(height: 18),
@@ -68,6 +87,7 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
   Future<void> _searchOnline(BuildContext context) async {
     final query = TextEditingController();
     final location = TextEditingController();
+    var specialty = specialties.first;
     var radius = 10.0;
     var loading = false;
     String? error;
@@ -75,7 +95,14 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
     await showDialog<void>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
       title: const Text('Arzt im Umkreis suchen'),
       content: SizedBox(width: 600, height: 520, child: Column(children: [
-        TextField(controller: query, decoration: const InputDecoration(labelText: 'Arzt, Fachrichtung oder Behandlungsthema', hintText: 'z. B. Haut, Rücken, Kardiologie')),
+        DropdownButtonFormField<String>(
+          initialValue: specialty,
+          decoration: const InputDecoration(labelText: 'Fachrichtung'),
+          items: specialties.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+          onChanged: (value) => setDialogState(() => specialty = value ?? specialties.first),
+        ),
+        const SizedBox(height: 10),
+        TextField(controller: query, decoration: const InputDecoration(labelText: 'Optional: Name oder Behandlungsthema', hintText: 'z. B. Haut, Rücken oder Diabetes')),
         const SizedBox(height: 10),
         Row(children: [
           Expanded(child: TextField(controller: location, decoration: const InputDecoration(labelText: 'Ort oder Postleitzahl'))),
@@ -87,7 +114,8 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
           onPressed: loading ? null : () async {
             setDialogState(() { loading = true; error = null; });
             try {
-              results = await DoctorSearchService.search(query: query.text, location: location.text, radiusKm: radius);
+              final searchTerm = [if (specialty != specialties.first) specialty, query.text.trim()].where((value) => value.isNotEmpty).join(' ');
+              results = await DoctorSearchService.search(query: searchTerm, location: location.text, radiusKm: radius);
               if (results.isEmpty) error = 'Keine passenden Treffer in diesem Radius gefunden.';
             } catch (exception) {
               error = exception.toString().replaceFirst('Exception: ', '');
@@ -106,12 +134,18 @@ class _DoctorsScreenState extends ConsumerState<DoctorsScreen> {
               subtitle: Text([doctor.specialty, doctor.address].where((value) => value.isNotEmpty).join('\n'), maxLines: 3, overflow: TextOverflow.ellipsis),
               trailing: const Icon(Icons.add_circle_outline),
               onTap: () async {
-                await ref.read(appControllerProvider).addDoctor(doctor);
-                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${doctor.name} gespeichert.')));
+                final reviewed = await showDialog<Doctor>(context: context, builder: (_) => _DoctorFormDialog(doctor: doctor));
+                if (reviewed != null) {
+                  await ref.read(appControllerProvider).addDoctor(reviewed);
+                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${reviewed.name} gespeichert.')));
+                }
               },
             ),
         ])),
-        const Align(alignment: Alignment.centerRight, child: Text('Daten © OpenStreetMap-Mitwirkende', style: TextStyle(fontSize: 11))),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          TextButton.icon(onPressed: () => launchUrl(Uri.parse('https://arztsuche.116117.de/'), mode: LaunchMode.externalApplication), icon: const Icon(Icons.health_and_safety_outlined), label: const Text('116117-Arztsuche')),
+          const Text('Daten © OpenStreetMap-Mitwirkende', style: TextStyle(fontSize: 11)),
+        ]),
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Schließen'))],
     )));
@@ -134,6 +168,7 @@ class _DoctorFormDialogState extends State<_DoctorFormDialog> {
   late final TextEditingController email;
   late final TextEditingController website;
   late final TextEditingController appointment;
+  late final TextEditingController openingHours;
 
   @override
   void initState() {
@@ -145,12 +180,13 @@ class _DoctorFormDialogState extends State<_DoctorFormDialog> {
     email = TextEditingController(text: widget.doctor?.email ?? '');
     website = TextEditingController(text: widget.doctor?.website ?? '');
     appointment = TextEditingController(text: widget.doctor?.appointmentUrl ?? '');
+    openingHours = TextEditingController(text: widget.doctor?.openingHours ?? '');
   }
 
   @override
   void dispose() {
     name.dispose(); specialty.dispose(); address.dispose(); phone.dispose();
-    email.dispose(); website.dispose(); appointment.dispose();
+    email.dispose(); website.dispose(); appointment.dispose(); openingHours.dispose();
     super.dispose();
   }
 
@@ -165,12 +201,14 @@ class _DoctorFormDialogState extends State<_DoctorFormDialog> {
       _field(email, 'E-Mail für Rezepte und Nachrichten', Icons.email_outlined, type: TextInputType.emailAddress),
       _field(website, 'Webseite', Icons.language, type: TextInputType.url),
       _field(appointment, 'Link zur Terminvereinbarung', Icons.event_available_outlined, type: TextInputType.url),
+      _field(openingHours, 'Öffnungszeiten', Icons.schedule_outlined),
     ]))),
     actions: [
       TextButton(onPressed: () => Navigator.pop(context), child: const Text('Abbrechen')),
       FilledButton(onPressed: name.text.trim().isEmpty ? null : () => Navigator.pop(context, Doctor(
         id: widget.doctor?.id ?? '', name: name.text.trim(), specialty: specialty.text.trim(), address: address.text.trim(),
         phone: phone.text.trim(), email: email.text.trim(), website: website.text.trim(), appointmentUrl: appointment.text.trim(),
+        openingHours: openingHours.text.trim(),
         latitude: widget.doctor?.latitude, longitude: widget.doctor?.longitude,
       )), child: const Text('Speichern')),
     ],
@@ -198,6 +236,7 @@ class _DoctorCard extends ConsumerWidget {
       }, itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Bearbeiten')), PopupMenuItem(value: 'delete', child: Text('Löschen'))]),
     ]),
     if (doctor.address.isNotEmpty) ...[const SizedBox(height: 14), Text(doctor.address)],
+    if (doctor.openingHours.isNotEmpty) ...[const SizedBox(height: 8), Row(children: [const Icon(Icons.schedule_outlined, size: 18), const SizedBox(width: 8), Expanded(child: Text(doctor.openingHours))])],
     const SizedBox(height: 14),
     Wrap(spacing: 8, runSpacing: 8, children: [
       if (doctor.phone.isNotEmpty) ActionChip(avatar: const Icon(Icons.call, size: 18), label: const Text('Anrufen'), onPressed: () => _open(Uri(scheme: 'tel', path: doctor.phone))),
