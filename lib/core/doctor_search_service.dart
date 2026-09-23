@@ -209,9 +209,12 @@ class DoctorSearchService {
         doctor.phone.isNotEmpty ? doctor.phone : _firstLink(html, 'tel');
     final email =
         doctor.email.isNotEmpty ? doctor.email : _firstLink(html, 'mailto');
-    final appointment = doctor.appointmentUrl.isNotEmpty
-        ? doctor.appointmentUrl
-        : _appointmentLink(html, response.request?.url ?? uri);
+    final base = response.request?.url ?? uri;
+    final storedAppointment =
+        _normalizeWebUrl(doctor.appointmentUrl, base);
+    final appointment = storedAppointment.isNotEmpty
+        ? storedAppointment
+        : extractAppointmentLink(html, base);
     return doctor.copyWith(
       phone: phone,
       email: email,
@@ -404,9 +407,16 @@ out center tags;''';
       ),
       email: _first(tags, ['contact:email', 'email']),
       website: _first(tags, ['contact:website', 'website', 'url']),
-      appointmentUrl: _first(
+      appointmentUrl: _firstWebUrl(
         tags,
-        ['contact:appointment', 'appointment', 'booking', 'contact:booking'],
+        [
+          'contact:appointment',
+          'appointment',
+          'booking',
+          'contact:booking',
+          'reservation',
+          'contact:reservation',
+        ],
       ),
       openingHours: _first(tags, ['opening_hours']),
       latitude: lat,
@@ -497,24 +507,98 @@ out center tags;''';
         .replaceAll('&amp;', '&');
   }
 
-  static String _appointmentLink(String html, Uri base) {
-    final linkPattern = RegExp(
-      r'''href\s*=\s*["']([^"']+)["']''',
+  /// Extracts the best public booking link from an HTML page.
+  ///
+  /// Both URL and visible link text are evaluated because many practices use
+  /// neutral URLs such as /online-service behind a "Termin vereinbaren" link.
+  static String extractAppointmentLink(String html, Uri base) {
+    final normalizedHtml = html.replaceAll(r'\/', '/');
+    final anchorPattern = RegExp(
+      r'''<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>''',
       caseSensitive: false,
+      dotAll: true,
     );
     final keywords = RegExp(
-      r'(termin|appointment|booking|doctolib|samedi|jameda)',
+      r'(termin|appointment|booking|book-online|online.?buch|sprechstunde|'
+      r'doctolib|samedi|jameda|arzt-direkt|dubidoc|clickdoc)',
       caseSensitive: false,
     );
-    for (final match in linkPattern.allMatches(html)) {
-      final raw =
-          (match.group(1) ?? '').replaceAll('&amp;', '&').trim();
-      if (!keywords.hasMatch(raw)) continue;
-      final uri = Uri.tryParse(raw);
-      if (uri == null) continue;
-      return (uri.hasScheme ? uri : base.resolveUri(uri)).toString();
+    final candidates = <({String url, int score})>[];
+    for (final match in anchorPattern.allMatches(normalizedHtml)) {
+      final raw = _decodeHtml(match.group(1) ?? '');
+      final label = _decodeHtml(
+        (match.group(2) ?? '').replaceAll(RegExp(r'<[^>]+>'), ' '),
+      );
+      final url = _normalizeWebUrl(raw, base);
+      if (url.isEmpty) continue;
+      var score = 0;
+      if (keywords.hasMatch(raw)) score += 60;
+      if (keywords.hasMatch(label)) score += 50;
+      if (RegExp(
+        r'(doctolib|samedi|jameda|arzt-direkt|dubidoc|clickdoc)',
+        caseSensitive: false,
+      ).hasMatch(url)) {
+        score += 80;
+      }
+      if (RegExp(
+        r'(impressum|datenschutz|privacy|login|kontakt)',
+        caseSensitive: false,
+      ).hasMatch(url)) {
+        score -= 40;
+      }
+      if (score > 0) candidates.add((url: url, score: score));
+    }
+    candidates.sort((a, b) => b.score.compareTo(a.score));
+    return candidates.isEmpty ? '' : candidates.first.url;
+  }
+
+  static String _firstWebUrl(
+    Map<String, dynamic> tags,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = tags[key]?.toString().trim() ?? '';
+      final normalized = _normalizeWebUrl(value, null);
+      if (normalized.isNotEmpty) return normalized;
     }
     return '';
+  }
+
+  static String _normalizeWebUrl(String value, Uri? base) {
+    final cleaned = _decodeHtml(value).replaceAll(r'\/', '/').trim();
+    if (cleaned.isEmpty ||
+        cleaned == '#' ||
+        RegExp(r'^(javascript|mailto|tel|data):', caseSensitive: false)
+            .hasMatch(cleaned)) {
+      return '';
+    }
+    var candidate = Uri.tryParse(cleaned);
+    if (candidate == null) return '';
+    if (!candidate.hasScheme) {
+      final firstPart = cleaned.split('/').first;
+      final looksLikeHost = firstPart.contains('.') && !cleaned.contains(' ');
+      if (looksLikeHost) {
+        candidate = Uri.tryParse('https://$cleaned');
+      } else if (base != null) {
+        candidate = base.resolveUri(candidate);
+      } else {
+        return '';
+      }
+    }
+    if (candidate == null ||
+        !{'http', 'https'}.contains(candidate.scheme) ||
+        candidate.host.isEmpty) {
+      return '';
+    }
+    return candidate.toString();
+  }
+
+  static String _decodeHtml(String value) => value
+      .replaceAll('&amp;', '&')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&nbsp;', ' ')
+      .trim();
   }
 
   static Uri _safePublicUri(String value) {
