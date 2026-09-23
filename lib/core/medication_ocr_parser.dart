@@ -160,36 +160,3 @@ class MedicationOcrParser {
     );
   }
 }
-, caseSensitive: false).hasMatch(result)) {
-        return '';
-      }
-      result = result
-          .replaceFirst(
-            RegExp('^$escaped(?:\\s+|[-–—]+)', caseSensitive: false),
-            '',
-          )
-          .replaceFirst(
-            RegExp('(?:\\s+|[-–—]+)$escaped$', caseSensitive: false),
-            '',
-          )
-          .trim();
-    }
-    return result;
-  }
-
-  static bool _isMedicationCandidate(String value) {
-    if (value.isEmpty || !RegExp(r'[A-Za-zÄÖÜäöüß]{3}').hasMatch(value)) {
-      return false;
-    }
-    if (RegExp(
-      r'^(?:pzn|ean|charge|charg|lot|verwendbar|haltbar|hersteller|manufacturer|firma|tabletten?|filmtabletten?|kapseln?|lösung|packung)\b',
-      caseSensitive: false,
-    ).hasMatch(value)) {
-      return false;
-    }
-    return !_manufacturers.any(
-      (manufacturer) =>
-          value.toLowerCase() == manufacturer.toLowerCase(),
-    );
-  }
-}
