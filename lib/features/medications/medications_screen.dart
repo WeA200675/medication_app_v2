@@ -114,10 +114,31 @@ class MedicationsScreen extends ConsumerWidget {
       ),
     );
     if (accepted == true && name.text.trim().isNotEmpty) {
+      final scannedName = [name.text.trim(), strength.text.trim()]
+          .where((value) => value.isNotEmpty)
+          .join(' ');
+      final existing = _findDuplicate(
+        ref.read(appControllerProvider).medications,
+        scannedName,
+      );
+      if (existing != null) {
+        final action = await _askDuplicateAction(context, existing);
+        if (action == 'addStock' && context.mounted) {
+          final quantity = await _askPackageQuantity(context, existing);
+          if (quantity != null && quantity > 0) {
+            await ref
+                .read(appControllerProvider)
+                .refillMedication(existing, quantity);
+          }
+          return;
+        }
+        if (action != 'separate') return;
+      }
+      if (!context.mounted) return;
       await _showAdd(
         context,
         ref,
-        initialName: [name.text.trim(), strength.text.trim()].where((value) => value.isNotEmpty).join(' '),
+        initialName: scannedName,
         initialInstructions: manufacturer.text.trim().isEmpty
             ? ''
             : 'Hersteller: ${manufacturer.text.trim()}',
@@ -125,6 +146,91 @@ class MedicationsScreen extends ConsumerWidget {
     }
   }
 
+  Medication? _findDuplicate(
+    Iterable<Medication> medications,
+    String scannedName,
+  ) {
+    final normalized = _normalizeMedicationName(scannedName);
+    for (final medication in medications) {
+      if (_normalizeMedicationName(medication.name) == normalized) {
+        return medication;
+      }
+    }
+    return null;
+  }
+
+  String _normalizeMedicationName(String value) => value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9äöüßµ]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  Future<String?> _askDuplicateAction(
+    BuildContext context,
+    Medication medication,
+  ) {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.content_copy_outlined),
+        title: const Text('Medikament bereits vorhanden'),
+        content: Text(
+          '${medication.name} ist bereits gespeichert. Der aktuelle Bestand beträgt '
+          '${formatMedicationQuantity(medication.stock, medication.unit)}.\n\n'
+          'Möchtest du eine weitere Packung zum Bestand hinzufügen oder bewusst einen separaten Eintrag anlegen?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'separate'),
+            child: const Text('Separat anlegen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, 'addStock'),
+            child: const Text('Bestand erhöhen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<double?> _askPackageQuantity(
+    BuildContext context,
+    Medication medication,
+  ) async {
+    final controller = TextEditingController(text: '30');
+    return showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Neue Packung hinzufügen'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'Menge in ${medication.unit}',
+            helperText: 'Diese Menge wird zum vorhandenen Bestand addiert.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              _number(controller.text, 0),
+            ),
+            child: const Text('Hinzufügen'),
+          ),
+        ],
+      ),
+    );
+  }
   Future<void> _composeRefill(Iterable<Medication> meds) async {
     final list = meds.map((e) => '• ${e.name} (noch ${formatMedicationQuantity(e.stock, e.unit)})').join('\n');
     final uri = Uri(scheme: 'mailto', queryParameters: {'subject': 'Medikamente benötigt', 'body': 'Guten Tag,\n\nfolgende Medikamente werden benötigt:\n\n$list\n\nMit freundlichen Grüßen'});
