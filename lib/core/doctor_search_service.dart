@@ -136,19 +136,26 @@ class DoctorSearchService {
     Object? lastError;
     for (final endpoint in _overpassEndpoints) {
       try {
-        final doctors = await _searchOverpass(
+        final overpass = await _searchOverpass(
           endpoint,
           center,
           radiusKm,
           query,
         );
         return DoctorSearchResult(
-          doctors: doctors,
-          notices: doctors.isEmpty
+          doctors: overpass.doctors,
+          usedFallback: overpass.relaxed,
+          notices: overpass.doctors.isEmpty
               ? const [
                   'OpenStreetMap enthält in diesem Gebiet möglicherweise '
                       'noch keine passenden Fachdaten.',
                 ]
+              : overpass.relaxed
+                  ? const [
+                      'Zu diesem Suchbegriff fehlen genaue Fachangaben. '
+                          'Deshalb werden alle Arztpraxen im gewählten '
+                          'Umkreis angezeigt.',
+                    ]
               : const [],
         );
       } catch (error) {
@@ -216,7 +223,7 @@ class DoctorSearchService {
     );
   }
 
-  Future<List<Doctor>> _searchOverpass(
+  Future<({List<Doctor> doctors, bool relaxed})> _searchOverpass(
     String endpoint,
     (double, double) center,
     double radiusKm,
@@ -249,7 +256,15 @@ out center tags;''';
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException('Ungültige Overpass-Antwort');
     }
-    return parseOverpass(decoded, query, center);
+    final matching = parseOverpass(decoded, query, center);
+    if (matching.isNotEmpty || _normalize(query).isEmpty) {
+      return (doctors: matching, relaxed: false);
+    }
+
+    // Many useful OSM doctor entries have no healthcare:speciality tag.
+    // Never turn that missing metadata into a misleading empty result.
+    final nearby = parseOverpass(decoded, '', center);
+    return (doctors: nearby, relaxed: nearby.isNotEmpty);
   }
 
   static List<Doctor> parseOverpass(
